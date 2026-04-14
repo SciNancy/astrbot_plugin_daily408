@@ -13,7 +13,6 @@ import asyncio
 import json
 import os
 import random
-import re
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -26,9 +25,6 @@ import astrbot.core.message.components as Comp
 
 from ._version import __version__, __plugin_name__, __author__, __plugin_desc__
 
-
-# 全局管理员列表，用于在命令处理函数中快速判断权限
-ADMIN_USERS: List[str] = []
 
 # 科目代码到中文名称的映射，用于命令参数解析和消息展示
 SUBJECT_MAP = {
@@ -113,9 +109,6 @@ class Daily408Plugin(Star):
         # 后台监控任务句柄
         self._monitor_task: Optional[asyncio.Task] = None
 
-        global ADMIN_USERS
-        ADMIN_USERS = self.admin_users.copy()
-
         logger.info(f"考研408每日真题插件已加载，共加载 {len(self.questions)} 道题目")
 
     def _load_config(self):
@@ -132,7 +125,6 @@ class Daily408Plugin(Star):
             "check_interval_seconds": 30,
             "inform_hour": 9,
             "inform_minute": 0,
-            "admin_users": [],
             "group_origins": {},
             "subscribed_groups": []
         }
@@ -154,9 +146,6 @@ class Daily408Plugin(Star):
             default_config["inform_minute"] = self.config.get(
                 "daily408_inform_minute", default_config["inform_minute"]
             )
-            admin_from_config = self.config.get("daily408_admin_users", [])
-            if admin_from_config:
-                default_config["admin_users"] = [str(u) for u in admin_from_config]
 
         if os.path.exists(self.subscription_file):
             try:
@@ -173,7 +162,6 @@ class Daily408Plugin(Star):
 
         self.inform_hour = default_config["inform_hour"]
         self.inform_minute = default_config["inform_minute"]
-        self.admin_users = default_config["admin_users"]
         self.subscribed_groups = default_config["subscribed_groups"]
 
     def _load_questions(self):
@@ -251,16 +239,6 @@ class Daily408Plugin(Star):
         if group_id in self.group_origins:
             return self.group_origins[group_id]
         return group_id
-
-    def _is_admin(self, event: AstrMessageEvent) -> bool:
-        """
-        检查用户是否为管理员。
-        兼顾平台原生权限和插件自定义权限。
-        """
-        if event.is_admin():
-            return True
-        sender_id = str(event.get_sender_id())
-        return sender_id in ADMIN_USERS
 
     async def _save_subscription(self):
         """异步保存订阅配置到 subscription.json，加锁防止并发写损坏。"""
@@ -448,15 +426,14 @@ ds=数据结构  co=计组  os=操作系统  cn=计算机网络
 3️⃣ /408订阅 - 订阅每日真题推送（默认09:00，仅限群聊）
 4️⃣ /408退订 - 取消每日推送（仅限群聊）
 5️⃣ /408列表 - 查看本群订阅状态
-6️⃣ /408全部订阅 - 查看所有已订阅群（管理员）
+6️⃣ /408全部订阅 - 查看所有已订阅群
 
 【配置】
 - 默认每日 09:00 推送
 - 可在 AstrBot 插件配置中修改推送时间
 
 【提示】
-- 管理命令仅限管理员使用
-- 抽题命令支持私聊和群聊
+- 所有命令支持私聊和群聊
 - 题库文件为 data/questions.json，可自行扩充"""
 
         yield event.plain_result(msg)
@@ -523,11 +500,8 @@ ds=数据结构  co=计组  os=操作系统  cn=计算机网络
 
     @filter.command("408订阅")
     async def cmd_subscribe(self, event: AstrMessageEvent):
-        """命令：/408订阅 - 将当前群加入订阅列表"""
+        """命令：/408订阅 - 将当前群加入订阅列表（所有人可用）"""
         self._save_group_origin(event)
-        if not self._is_admin(event):
-            yield event.plain_result("⚠️ 只有管理员可以使用此命令")
-            return
 
         group_id = self._get_group_id(event)
         if not group_id:
@@ -547,11 +521,8 @@ ds=数据结构  co=计组  os=操作系统  cn=计算机网络
 
     @filter.command("408退订")
     async def cmd_unsubscribe(self, event: AstrMessageEvent):
-        """命令：/408退订 - 将当前群从订阅列表移除"""
+        """命令：/408退订 - 将当前群从订阅列表移除（所有人可用）"""
         self._save_group_origin(event)
-        if not self._is_admin(event):
-            yield event.plain_result("⚠️ 只有管理员可以使用此命令")
-            return
 
         group_id = self._get_group_id(event)
         if not group_id:
@@ -569,11 +540,8 @@ ds=数据结构  co=计组  os=操作系统  cn=计算机网络
 
     @filter.command("408列表")
     async def cmd_list(self, event: AstrMessageEvent):
-        """命令：/408列表 - 查看当前群订阅状态"""
+        """命令：/408列表 - 查看当前群订阅状态（所有人可用）"""
         self._save_group_origin(event)
-        if not self._is_admin(event):
-            yield event.plain_result("⚠️ 只有管理员可以使用此命令")
-            return
 
         group_id = self._get_group_id(event)
         if not group_id:
@@ -589,11 +557,8 @@ ds=数据结构  co=计组  os=操作系统  cn=计算机网络
 
     @filter.command("408全部订阅")
     async def cmd_all_subscriptions(self, event: AstrMessageEvent):
-        """命令：/408全部订阅 - 列出所有已订阅的群"""
+        """命令：/408全部订阅 - 列出所有已订阅的群（所有人可用）"""
         self._save_group_origin(event)
-        if not self._is_admin(event):
-            yield event.plain_result("⚠️ 只有管理员可以使用此命令")
-            return
 
         if not self.subscribed_groups:
             yield event.plain_result("📋 暂无能订阅考研408每日真题的群")
