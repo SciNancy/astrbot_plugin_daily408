@@ -1,0 +1,8 @@
+{
+  "admin_users": {
+    "description": "管理员用户列表",
+    "type": "list",
+    "hint": "可以管理插件的管理员用户ID列表",
+    "default": []
+  }
+}
